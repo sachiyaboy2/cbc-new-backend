@@ -7,6 +7,8 @@ import {
   googleLogin,
   updateProfileImage,
   updateProfile,
+  sendOTP,
+  changePasswordOTP,
 } from "../controller/userController.js";
 
 const userRouter = express.Router();
@@ -46,5 +48,11 @@ userRouter.put("/profile-image", updateProfileImage);
 // =====================================================
 
 userRouter.put("/profile", updateProfile);
+
+//=======================================================
+
+userRouter.post("/forgot-password/send-otp", sendOTP);
+
+userRouter.post("/forgot-password/reset", changePasswordOTP);
 
 export default userRouter;

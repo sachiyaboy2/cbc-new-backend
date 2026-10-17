@@ -8,6 +8,28 @@ import crypto from "crypto";
 
 import { OAuth2Client } from "google-auth-library";
 
+import dotenv from "dotenv";
+import nodemailer from "nodemailer";
+import OTP from "../models/otpModel.js";
+import dns from "node:dns";
+
+dns.setServers([
+  "1.1.1.1",
+  "8.8.8.8",
+]);
+
+dotenv.config();
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.APP_PASSWORD,
+  },
+});
 // =====================================================
 // GOOGLE CLIENT
 // =====================================================
@@ -624,6 +646,363 @@ export async function updateProfile(req, res) {
 
     res.status(500).json({
       message: "Internal server error",
+
+      error: err.message,
+    });
+  }
+}
+
+// =====================================================
+// FORGOT PASSWORD - SEND OTP
+// =====================================================
+
+export async function sendOTP(req, res) {
+  try {
+    // =========================================
+    // GET EMAIL
+    // =========================================
+
+    const email = req.body.email?.toString().trim().toLowerCase();
+
+    if (!email) {
+      res.status(400).json({
+        message: "Email address is required",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // CHECK USER
+    // =========================================
+
+    const user = await User.findOne({
+      email: email,
+    });
+
+    /*
+      Security:
+      account එක නැති email එකක් දැම්මත්
+      "user not found" කියලා expose කරන්නේ නැහැ.
+    */
+
+    if (user == null) {
+      res.status(200).json({
+        message: "If an account exists with this email, an OTP has been sent.",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // BLOCKED USER
+    // =========================================
+
+    if (user.isBlocked === true) {
+      res.status(403).json({
+        message: "This account has been blocked",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // GENERATE SECURE 6 DIGIT OTP
+    // =========================================
+
+    const otp = crypto.randomInt(100000, 1000000).toString();
+
+    // =========================================
+    // HASH OTP
+    // =========================================
+
+    const hashedOTP = await bcrypt.hash(otp, 10);
+
+    // =========================================
+    // DELETE OLD OTP
+    // =========================================
+
+    await OTP.deleteMany({
+      email: email,
+    });
+
+    // =========================================
+    // OTP EXPIRY - 10 MINUTES
+    // =========================================
+
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    // =========================================
+    // SAVE OTP
+    // =========================================
+
+    const newOTP = new OTP({
+      email: email,
+
+      otp: hashedOTP,
+
+      expiresAt: expiresAt,
+    });
+
+    await newOTP.save();
+
+    // =========================================
+    // SEND EMAIL
+    // =========================================
+
+    await transporter.sendMail({
+      from: `"NariCraft" <${process.env.EMAIL_USER}>`,
+
+      to: email,
+
+      subject: "NariCraft Password Reset OTP",
+
+      html: `
+        <div
+          style="
+            font-family: Arial, sans-serif;
+            max-width: 520px;
+            margin: auto;
+            padding: 30px;
+            background: #f6ede2;
+            border-radius: 20px;
+            border: 1px solid #ead8c2;
+          "
+        >
+
+          <h2
+            style="
+              color: #5b1a2b;
+              margin-bottom: 10px;
+            "
+          >
+            NariCraft Password Reset
+          </h2>
+
+          <p
+            style="
+              color: #765f52;
+              line-height: 1.7;
+            "
+          >
+            We received a request to reset your
+            NariCraft account password.
+          </p>
+
+          <p
+            style="
+              color: #765f52;
+            "
+          >
+            Your verification code is:
+          </p>
+
+          <div
+            style="
+              font-size: 32px;
+              font-weight: bold;
+              letter-spacing: 8px;
+              text-align: center;
+              color: #d99b21;
+              background: white;
+              padding: 20px;
+              border-radius: 14px;
+              margin: 20px 0;
+            "
+          >
+            ${otp}
+          </div>
+
+          <p
+            style="
+              color: #765f52;
+              line-height: 1.7;
+            "
+          >
+            This OTP will expire in
+            <strong>10 minutes</strong>.
+          </p>
+
+          <p
+            style="
+              color: #9b8374;
+              font-size: 12px;
+            "
+          >
+            If you did not request a password reset,
+            you can safely ignore this email.
+          </p>
+
+        </div>
+      `,
+    });
+
+    // =========================================
+    // SUCCESS
+    // =========================================
+
+    res.status(200).json({
+      message: "OTP sent successfully. Please check your email.",
+    });
+  } catch (err) {
+    console.error("Send OTP Error:", err);
+
+    res.status(500).json({
+      message: "Unable to send OTP. Please try again.",
+
+      error: err.message,
+    });
+  }
+}
+
+// =====================================================
+// FORGOT PASSWORD - RESET PASSWORD
+// =====================================================
+
+export async function changePasswordOTP(req, res) {
+  try {
+    // =========================================
+    // GET DATA
+    // =========================================
+
+    const email = req.body.email?.toString().trim().toLowerCase();
+
+    const otp = req.body.otp?.toString().trim();
+
+    const newPassword = req.body.newPassword;
+
+    // =========================================
+    // VALIDATION
+    // =========================================
+
+    if (!email || !otp || !newPassword) {
+      res.status(400).json({
+        message: "Email, OTP and new password are required",
+      });
+
+      return;
+    }
+
+    if (!/^\d{6}$/.test(otp)) {
+      res.status(400).json({
+        message: "OTP must contain 6 digits",
+      });
+
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      res.status(400).json({
+        message: "Password must be at least 6 characters",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // CHECK USER
+    // =========================================
+
+    const user = await User.findOne({
+      email: email,
+    });
+
+    if (user == null) {
+      res.status(404).json({
+        message: "Unable to reset password",
+      });
+
+      return;
+    }
+
+    if (user.isBlocked === true) {
+      res.status(403).json({
+        message: "This account has been blocked",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // FIND OTP RECORD
+    // =========================================
+
+    const otpRecord = await OTP.findOne({
+      email: email,
+    });
+
+    if (otpRecord == null) {
+      res.status(400).json({
+        message: "OTP is invalid or has expired",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // CHECK EXPIRY
+    // =========================================
+
+    if (new Date() > new Date(otpRecord.expiresAt)) {
+      await OTP.deleteMany({
+        email: email,
+      });
+
+      res.status(400).json({
+        message: "OTP has expired. Please request a new OTP.",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // VERIFY HASHED OTP
+    // =========================================
+
+    const otpIsValid = await bcrypt.compare(otp, otpRecord.otp);
+
+    if (!otpIsValid) {
+      res.status(400).json({
+        message: "Invalid OTP",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // HASH NEW PASSWORD
+    // =========================================
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // =========================================
+    // UPDATE USER PASSWORD
+    // =========================================
+
+    user.password = hashedPassword;
+
+    await user.save();
+
+    // =========================================
+    // DELETE OTP AFTER SUCCESS
+    // =========================================
+
+    await OTP.deleteMany({
+      email: email,
+    });
+
+    // =========================================
+    // SUCCESS
+    // =========================================
+
+    res.status(200).json({
+      message: "Password reset successfully",
+    });
+  } catch (err) {
+    console.error("Password Reset Error:", err);
+
+    res.status(500).json({
+      message: "Error resetting password",
 
       error: err.message,
     });
