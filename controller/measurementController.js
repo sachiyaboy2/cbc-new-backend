@@ -1,11 +1,69 @@
 import MeasurementProfile from "../models/measurementProfile.js";
 
 // =====================================================
+// GARMENT CONFIG
+// =====================================================
+
+const garmentConfig = {
+  "saree-jacket": {
+    profileKey: "sareeJacket",
+
+    requiredFields: [
+      "height",
+      "shoulder",
+      "bust",
+      "abdomen",
+      "frontNeckDepth",
+      "backNeckDepth",
+      "topToBustPoint",
+      "sideToBustPoint",
+      "sleeveLength",
+      "sleeveCircumference",
+      "armhole",
+    ],
+  },
+
+  frock: {
+    profileKey: "frock",
+
+    requiredFields: [
+      "shoulder",
+      "waistLength",
+      "bust",
+      "waist",
+      "sleeveCircumference",
+      "armhole",
+      "skirtLength",
+      "frontNeckDepth",
+    ],
+  },
+
+  "crop-top": {
+    profileKey: "cropTop",
+
+    requiredFields: [
+      "height",
+      "shoulder",
+      "waistLength",
+      "bust",
+      "waist",
+      "sleeveCircumference",
+      "armhole",
+      "frontNeckDepth",
+    ],
+  },
+};
+
+// =====================================================
 // GET SAVED MEASUREMENTS
 // =====================================================
 
 export async function getMyMeasurements(req, res) {
   try {
+    // =========================================
+    // LOGIN CHECK
+    // =========================================
+
     if (req.user == null) {
       res.status(401).json({
         message: "Unauthorized",
@@ -14,17 +72,45 @@ export async function getMyMeasurements(req, res) {
       return;
     }
 
-    const profile = await MeasurementProfile.findOne({
-      email: req.user.email,
-    });
+    // =========================================
+    // EMAIL
+    // =========================================
 
-    if (profile == null) {
-      res.status(200).json({
-        hasSavedMeasurements: false,
+    const email = req.user.email?.toString().trim().toLowerCase();
+
+    if (!email) {
+      res.status(400).json({
+        message: "User email not found",
       });
 
       return;
     }
+
+    // =========================================
+    // FIND PROFILE
+    // =========================================
+
+    const profile = await MeasurementProfile.findOne({
+      email: email,
+    });
+
+    // =========================================
+    // NO PROFILE
+    // =========================================
+
+    if (profile == null) {
+      res.status(200).json({
+        hasSavedMeasurements: false,
+
+        profile: null,
+      });
+
+      return;
+    }
+
+    // =========================================
+    // RESPONSE
+    // =========================================
 
     res.status(200).json({
       hasSavedMeasurements: true,
@@ -32,7 +118,7 @@ export async function getMyMeasurements(req, res) {
       profile: profile,
     });
   } catch (err) {
-    console.error("Get Measurements Error:", err);
+    console.error("Get Measurements Error:", err.message);
 
     res.status(500).json({
       message: "Internal server error",
@@ -43,11 +129,15 @@ export async function getMyMeasurements(req, res) {
 }
 
 // =====================================================
-// SAVE / UPDATE MEASUREMENTS
+// SAVE / UPDATE GARMENT MEASUREMENTS
 // =====================================================
 
 export async function saveMyMeasurements(req, res) {
   try {
+    // =========================================
+    // LOGIN CHECK
+    // =========================================
+
     if (req.user == null) {
       res.status(401).json({
         message: "Unauthorized",
@@ -56,7 +146,43 @@ export async function saveMyMeasurements(req, res) {
       return;
     }
 
-    const { measurementUnit, measurements } = req.body;
+    // =========================================
+    // EMAIL
+    // =========================================
+
+    const email = req.user.email?.toString().trim().toLowerCase();
+
+    if (!email) {
+      res.status(400).json({
+        message: "User email not found",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // REQUEST DATA
+    // =========================================
+
+    const { garmentType, measurementUnit, measurements } = req.body;
+
+    // =========================================
+    // GARMENT TYPE
+    // =========================================
+
+    const config = garmentConfig[garmentType];
+
+    if (!config) {
+      res.status(400).json({
+        message: "Invalid garment type",
+      });
+
+      return;
+    }
+
+    // =========================================
+    // UNIT
+    // =========================================
 
     if (measurementUnit !== "in" && measurementUnit !== "cm") {
       res.status(400).json({
@@ -66,22 +192,14 @@ export async function saveMyMeasurements(req, res) {
       return;
     }
 
-    const requiredFields = [
-      "bust",
-      "underBust",
-      "waist",
-      "shoulder",
-      "sleeveLength",
-      "sleeveCircumference",
-      "frontNeck",
-      "backNeck",
-      "jacketLength",
-    ];
+    // =========================================
+    // VALIDATE MEASUREMENTS
+    // =========================================
 
     const cleanedMeasurements = {};
 
-    for (let i = 0; i < requiredFields.length; i++) {
-      const field = requiredFields[i];
+    for (let i = 0; i < config.requiredFields.length; i++) {
+      const field = config.requiredFields[i];
 
       const value = Number(measurements?.[field]);
 
@@ -96,17 +214,31 @@ export async function saveMyMeasurements(req, res) {
       cleanedMeasurements[field] = value;
     }
 
+    // =========================================
+    // PROFILE PATH
+    // =========================================
+
+    const profilePath = `garmentProfiles.${config.profileKey}`;
+
+    // =========================================
+    // UPDATE PROFILE
+    // =========================================
+
     const profile = await MeasurementProfile.findOneAndUpdate(
       {
-        email: req.user.email,
+        email: email,
       },
 
       {
-        email: req.user.email,
+        $set: {
+          email: email,
 
-        measurementUnit: measurementUnit,
+          [profilePath]: {
+            measurementUnit: measurementUnit,
 
-        measurements: cleanedMeasurements,
+            measurements: cleanedMeasurements,
+          },
+        },
       },
 
       {
@@ -115,16 +247,24 @@ export async function saveMyMeasurements(req, res) {
         new: true,
 
         runValidators: true,
+
+        setDefaultsOnInsert: true,
       },
     );
+
+    // =========================================
+    // RESPONSE
+    // =========================================
 
     res.status(200).json({
       message: "Measurements saved successfully",
 
+      garmentType: garmentType,
+
       profile: profile,
     });
   } catch (err) {
-    console.error("Save Measurements Error:", err);
+    console.error("Save Measurements Error:", err.message);
 
     res.status(500).json({
       message: "Internal server error",
