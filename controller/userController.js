@@ -14,7 +14,7 @@ import OTP from "../models/otpModel.js";
 
 import dns from "node:dns";
 
-dns.setServers(["1.1.1.1", "8.8.8.8"]); 
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 // =====================================================
 // RESEND EMAIL CLIENT
@@ -31,6 +31,9 @@ function getResendClient() {
 function getResendFromEmail() {
   return process.env.RESEND_FROM_EMAIL || "NariCraft <onboarding@resend.dev>";
 }
+
+// OTP is valid for 10 minutes.
+const OTP_EXPIRY_MS = 10 * 60 * 1000;
 // =====================================================
 // GOOGLE CLIENT
 // =====================================================
@@ -712,6 +715,7 @@ export async function sendOTP(req, res) {
     const newOTP = new OTP({
       email: email,
       otp: otp,
+      expiresAt: new Date(Date.now() + OTP_EXPIRY_MS),
     });
 
     await newOTP.save();
@@ -829,9 +833,15 @@ export async function changePasswordOTP(req, res) {
     const otpRecord = await OTP.findOne({
       email: email,
       otp: otp,
+      expiresAt: { $gt: new Date() },
     });
 
     if (!otpRecord) {
+      // Clean up an old/expired OTP if it is still waiting for MongoDB TTL cleanup.
+      await OTP.deleteMany({
+        email: email,
+      });
+
       res.status(400).json({
         message: "Invalid or expired OTP",
       });
