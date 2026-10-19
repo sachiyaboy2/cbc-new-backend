@@ -8,27 +8,29 @@ import crypto from "crypto";
 
 import { OAuth2Client } from "google-auth-library";
 
-import dotenv from "dotenv";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
+
 import OTP from "../models/otpModel.js";
-import dns from "node:dns"; 
+
+import dns from "node:dns";
 
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
-dotenv.config();
+// =====================================================
+// RESEND EMAIL CLIENT
+// =====================================================
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
+function getResendClient() {
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY is missing");
+  }
 
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.APP_PASSWORD,
-  },
+  return new Resend(process.env.RESEND_API_KEY);
+}
 
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 15000,
-});
+function getResendFromEmail() {
+  return process.env.RESEND_FROM_EMAIL || "NariCraft <onboarding@resend.dev>";
+}
 // =====================================================
 // GOOGLE CLIENT
 // =====================================================
@@ -653,20 +655,22 @@ export async function updateProfile(req, res) {
 
 // =====================================================
 // FORGOT PASSWORD - SEND OTP
+// POST /api/users/forgot-password/send-otp
+// Body: { email }
 // =====================================================
 
 export async function sendOTP(req, res) {
+  const email = req.body.email?.toString().trim().toLowerCase();
+
+  if (!email) {
+    res.status(400).json({
+      message: "Email is required",
+    });
+
+    return;
+  }
+
   try {
-    const email = req.body.email?.trim().toLowerCase();
-
-    if (!email) {
-      res.status(400).json({
-        message: "Email is required",
-      });
-
-      return;
-    }
-
     // =========================================
     // CHECK USER
     // =========================================
@@ -683,23 +687,27 @@ export async function sendOTP(req, res) {
       return;
     }
 
+    if (user.isBlocked === true) {
+      res.status(403).json({
+        message: "Your account has been blocked",
+      });
+
+      return;
+    }
+
     // =========================================
-    // CREATE OTP
+    // CREATE CRYPTO-SECURE 6-DIGIT OTP
     // =========================================
 
-    const otp = Math.floor(Math.random() * 900000) + 100000;
+    const otp = crypto.randomInt(100000, 1000000);
 
     // =========================================
-    // DELETE OLD OTP
+    // REPLACE OLD OTP
     // =========================================
 
     await OTP.deleteMany({
       email: email,
     });
-
-    // =========================================
-    // SAVE NEW OTP
-    // =========================================
 
     const newOTP = new OTP({
       email: email,
@@ -709,89 +717,135 @@ export async function sendOTP(req, res) {
     await newOTP.save();
 
     // =========================================
-    // SEND EMAIL
+    // SEND EMAIL THROUGH RESEND HTTPS API
     // =========================================
 
-    await transporter.sendMail({
-      from: `"NariCraft" <${process.env.EMAIL_USER}>`,
+    const { data, error } = await getResendClient().emails.send({
+      from: getResendFromEmail(),
 
-      to: email,
+      to: [email],
 
-      subject: "NariCraft Password Reset OTP",
+      subject: "Your NariCraft password reset code",
 
       text:
         `Your NariCraft password reset OTP is ${otp}. ` +
         `Do not share this code with anyone.`,
+
+      html: `
+        <div style="margin:0;padding:32px 16px;background:#f8f1e8;font-family:Arial,Helvetica,sans-serif;color:#3f2028;">
+          <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #eadbc7;">
+            <div style="background:#6b1d2f;padding:28px;text-align:center;">
+              <div style="font-size:13px;letter-spacing:3px;color:#e8c34d;font-weight:700;">NARICRAFT</div>
+              <h1 style="margin:10px 0 0;color:#ffffff;font-size:24px;">Password Reset</h1>
+            </div>
+
+            <div style="padding:32px;text-align:center;">
+              <p style="margin:0 0 12px;font-size:16px;line-height:1.6;">
+                Use this verification code to reset your NariCraft password.
+              </p>
+
+              <div style="margin:24px auto;padding:18px 20px;max-width:260px;border-radius:14px;background:#fff8e5;border:1px solid #e2c45d;font-size:34px;letter-spacing:8px;font-weight:800;color:#6b1d2f;">
+                ${otp}
+              </div>
+
+              <p style="margin:0;font-size:13px;line-height:1.6;color:#826f75;">
+                If you did not request a password reset, you can ignore this email.
+                Never share this code with anyone.
+              </p>
+            </div>
+          </div>
+        </div>
+      `,
     });
+
+    if (error) {
+      // Don't leave a usable OTP in MongoDB if email delivery failed.
+      await OTP.deleteMany({
+        email: email,
+      });
+
+      console.error("Resend OTP Email Error:", error);
+
+      res.status(502).json({
+        message: "Unable to send OTP email",
+      });
+
+      return;
+    }
+
+    console.log("OTP email accepted by Resend:", data?.id || "unknown-id");
 
     res.status(200).json({
       message: "OTP sent to your email successfully",
     });
   } catch (err) {
-  console.error("OTP EMAIL ERROR:", err);
+    console.error("Send OTP Error:", err);
 
-  res.status(500).json({
-    message: "Unable to send OTP email",
-    error: err.message,
-  });
-}
+    // Remove a newly-created OTP after any email/API failure.
+    try {
+      await OTP.deleteMany({
+        email: email,
+      });
+    } catch (cleanupError) {
+      console.error("OTP cleanup error:", cleanupError.message);
+    }
+
+    res.status(500).json({
+      message: "Unable to send OTP email",
+    });
+  }
 }
 
 // =====================================================
 // FORGOT PASSWORD - RESET PASSWORD
+// POST /api/users/forgot-password/reset
+// Body: { email, otp, newPassword }
 // =====================================================
 
 export async function changePasswordOTP(req, res) {
+  const email = req.body.email?.toString().trim().toLowerCase();
+
+  const otp = Number(req.body.otp);
+
+  const newPassword = req.body.newPassword;
+
+  if (!email || !Number.isInteger(otp) || !newPassword) {
+    res.status(400).json({
+      message: "Email, OTP and new password are required",
+    });
+
+    return;
+  }
+
+  if (newPassword.length < 6) {
+    res.status(400).json({
+      message: "Password must be at least 6 characters",
+    });
+
+    return;
+  }
+
   try {
-    // =========================================
-    // GET DATA
-    // =========================================
+    const otpRecord = await OTP.findOne({
+      email: email,
+      otp: otp,
+    });
 
-    const email = req.body.email?.toString().trim().toLowerCase();
-
-    const otp = req.body.otp?.toString().trim();
-
-    const newPassword = req.body.newPassword;
-
-    // =========================================
-    // VALIDATION
-    // =========================================
-
-    if (!email || !otp || !newPassword) {
+    if (!otpRecord) {
       res.status(400).json({
-        message: "Email, OTP and new password are required",
+        message: "Invalid or expired OTP",
       });
 
       return;
     }
-
-    if (!/^\d{6}$/.test(otp)) {
-      res.status(400).json({
-        message: "OTP must contain 6 digits",
-      });
-
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      res.status(400).json({
-        message: "Password must be at least 6 characters",
-      });
-
-      return;
-    }
-
-    // =========================================
-    // CHECK USER
-    // =========================================
 
     const user = await User.findOne({
       email: email,
     });
 
-    if (user == null) {
+    if (!user) {
       res.status(404).json({
-        message: "Unable to reset password",
+        message: "User not found",
       });
 
       return;
@@ -799,94 +853,41 @@ export async function changePasswordOTP(req, res) {
 
     if (user.isBlocked === true) {
       res.status(403).json({
-        message: "This account has been blocked",
+        message: "Your account has been blocked",
       });
 
       return;
     }
-
-    // =========================================
-    // FIND OTP RECORD
-    // =========================================
-
-    const otpRecord = await OTP.findOne({
-      email: email,
-    });
-
-    if (otpRecord == null) {
-      res.status(400).json({
-        message: "OTP is invalid or has expired",
-      });
-
-      return;
-    }
-
-    // =========================================
-    // CHECK EXPIRY
-    // =========================================
-
-    if (new Date() > new Date(otpRecord.expiresAt)) {
-      await OTP.deleteMany({
-        email: email,
-      });
-
-      res.status(400).json({
-        message: "OTP has expired. Please request a new OTP.",
-      });
-
-      return;
-    }
-
-    // =========================================
-    // VERIFY HASHED OTP
-    // =========================================
-
-    const otpIsValid = await bcrypt.compare(otp, otpRecord.otp);
-
-    if (!otpIsValid) {
-      res.status(400).json({
-        message: "Invalid OTP",
-      });
-
-      return;
-    }
-
-    // =========================================
-    // HASH NEW PASSWORD
-    // =========================================
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // =========================================
-    // UPDATE USER PASSWORD
-    // =========================================
+    await User.findOneAndUpdate(
+      {
+        email: email,
+      },
+      {
+        $set: {
+          password: hashedPassword,
+        },
+      },
+      {
+        runValidators: true,
+      },
+    );
 
-    user.password = hashedPassword;
-
-    await user.save();
-
-    // =========================================
-    // DELETE OTP AFTER SUCCESS
-    // =========================================
-
+    // OTP is one-time use. Delete only after password update succeeds.
     await OTP.deleteMany({
       email: email,
     });
 
-    // =========================================
-    // SUCCESS
-    // =========================================
-
     res.status(200).json({
-      message: "Password reset successfully",
+      message: "Password changed successfully",
     });
-  } catch (err) {
-    console.error("Password Reset Error:", err);
+  } catch (error) {
+    console.error("Change Password OTP Error:", error);
 
     res.status(500).json({
-      message: "Error resetting password",
-
-      error: err.message,
+      message: "Error changing password",
     });
   }
 }
