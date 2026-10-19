@@ -359,7 +359,7 @@ app.use(
 
     if (
       err.message ===
-      "Not allowed by CORS"
+      "Not allowed by CORS" 
     ) {
       res.status(403).json({
         message:
