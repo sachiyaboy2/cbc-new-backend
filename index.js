@@ -17,7 +17,7 @@ import measurementRouter from "./routes/measurementRouter.js";
 import adminUserRouter from "./routes/adminUserRouter.js";
 import dashboardRouter from "./routes/dashboardRouter.js";
 import paymentRouter from "./routes/paymentRouter.js";
-
+import { paymentsLkWebhook } from "./controller/paymentController.js";
 
 // =====================================================
 // ENVIRONMENT VARIABLES
@@ -25,36 +25,27 @@ import paymentRouter from "./routes/paymentRouter.js";
 
 dotenv.config();
 
-
 // =====================================================
 // REQUIRED ENV CHECK
 // =====================================================
 
 if (!process.env.MONGO_URI) {
-  throw new Error(
-    "MONGO_URI is missing from environment variables",
-  );
+  throw new Error("MONGO_URI is missing from environment variables");
 }
 
 if (!process.env.JWT_SECRET) {
-  throw new Error(
-    "JWT_SECRET is missing from environment variables",
-  );
+  throw new Error("JWT_SECRET is missing from environment variables");
 }
 
 if (process.env.JWT_SECRET.length < 32) {
-  throw new Error(
-    "JWT_SECRET must be at least 32 characters long",
-  );
+  throw new Error("JWT_SECRET must be at least 32 characters long");
 }
-
 
 // =====================================================
 // EXPRESS APP
 // =====================================================
 
 const app = express();
-
 
 // =====================================================
 // RENDER / PROXY
@@ -63,7 +54,6 @@ const app = express();
 // Render runs the app behind a reverse proxy.
 // Useful for correct IP / HTTPS information later.
 app.set("trust proxy", 1);
-
 
 // =====================================================
 // CORS
@@ -82,11 +72,8 @@ const allowedOrigins = (
   "http://localhost:5173"
 )
   .split(",")
-  .map((origin) =>
-    origin.trim().replace(/\/+$/, ""),
-  )
+  .map((origin) => origin.trim().replace(/\/+$/, ""))
   .filter(Boolean);
-
 
 app.use(
   cors({
@@ -105,42 +92,39 @@ app.use(
         return;
       }
 
-      const normalizedOrigin =
-        origin.replace(/\/+$/, "");
+      const normalizedOrigin = origin.replace(/\/+$/, "");
 
-      if (
-        allowedOrigins.includes(
-          normalizedOrigin,
-        )
-      ) {
+      if (allowedOrigins.includes(normalizedOrigin)) {
         callback(null, true);
 
         return;
       }
 
-      callback(
-        new Error(
-          "Not allowed by CORS",
-        ),
-      );
+      callback(new Error("Not allowed by CORS"));
     },
 
-    methods: [
-      "GET",
-      "POST",
-      "PUT",
-      "PATCH",
-      "DELETE",
-      "OPTIONS",
-    ],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-    ],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
 
+// =====================================================
+// PAYMENTS.LK WEBHOOK
+//
+// IMPORTANT:
+// This route MUST be mounted before express.json().
+// Payments.lk signs the exact raw JSON bytes.
+// =====================================================
+
+app.post(
+  "/api/payments/payments-lk/webhook",
+  express.raw({
+    type: "application/json",
+    limit: "2mb",
+  }),
+  paymentsLkWebhook,
+);
 
 // =====================================================
 // BODY PARSERS
@@ -153,7 +137,6 @@ app.use(
   }),
 );
 
-
 // PayHere notify_url sends:
 // application/x-www-form-urlencoded
 app.use(
@@ -162,7 +145,6 @@ app.use(
     limit: "2mb",
   }),
 );
-
 
 // =====================================================
 // HEALTH CHECK
@@ -175,20 +157,16 @@ app.use(
 //
 
 app.get("/health", (req, res) => {
-  const mongoConnected =
-    mongoose.connection.readyState === 1;
+  const mongoConnected = mongoose.connection.readyState === 1;
 
   res.status(200).json({
     status: "ok",
 
     service: "NariCraft API",
 
-    database: mongoConnected
-      ? "connected"
-      : "connecting",
+    database: mongoConnected ? "connected" : "connecting",
   });
 });
-
 
 // =====================================================
 // ROOT
@@ -196,11 +174,9 @@ app.get("/health", (req, res) => {
 
 app.get("/", (req, res) => {
   res.status(200).json({
-    message:
-      "NariCraft Backend API is running",
+    message: "NariCraft Backend API is running",
   });
 });
-
 
 // =====================================================
 // AUTH MIDDLEWARE
@@ -216,11 +192,7 @@ app.get("/", (req, res) => {
 // =====================================================
 
 app.use((req, res, next) => {
-  let token =
-    req.header(
-      "Authorization",
-    );
-
+  let token = req.header("Authorization");
 
   // =========================================
   // NO TOKEN
@@ -232,103 +204,58 @@ app.use((req, res, next) => {
     return;
   }
 
-
   // =========================================
   // BEARER TOKEN
   // =========================================
 
-  token =
-    token.replace(
-      /^Bearer\s+/i,
-      "",
-    );
-
+  token = token.replace(/^Bearer\s+/i, "");
 
   if (!token) {
     res.status(401).json({
-      message:
-        "Invalid authorization token",
+      message: "Invalid authorization token",
     });
 
     return;
   }
-
 
   // =========================================
   // VERIFY
   // =========================================
 
   try {
-    const decoded =
-      jwt.verify(
-        token,
-        process.env.JWT_SECRET,
-      );
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-
-    req.user =
-      decoded;
-
+    req.user = decoded;
 
     next();
   } catch (err) {
     res.status(401).json({
-      message:
-        "Invalid or expired token",
+      message: "Invalid or expired token",
     });
   }
 });
-
 
 // =====================================================
 // API ROUTES
 // =====================================================
 
-app.use(
-  "/api/users",
-  userRouter,
-);
+app.use("/api/users", userRouter);
 
-app.use(
-  "/api/products",
-  productRouter,
-);
+app.use("/api/products", productRouter);
 
-app.use(
-  "/api/orders",
-  orderRouter,
-);
+app.use("/api/orders", orderRouter);
 
-app.use(
-  "/api/cart",
-  cartRouter,
-);
+app.use("/api/cart", cartRouter);
 
-app.use(
-  "/api/custom-orders",
-  customOrderRouter,
-);
+app.use("/api/custom-orders", customOrderRouter);
 
-app.use(
-  "/api/measurements",
-  measurementRouter,
-);
+app.use("/api/measurements", measurementRouter);
 
-app.use(
-  "/api/admin/users",
-  adminUserRouter,
-);
+app.use("/api/admin/users", adminUserRouter);
 
-app.use(
-  "/api/admin/dashboard",
-  dashboardRouter,
-);
+app.use("/api/admin/dashboard", dashboardRouter);
 
-app.use(
-  "/api/payments",
-  paymentRouter,
-);
-
+app.use("/api/payments", paymentRouter);
 
 // =====================================================
 // 404
@@ -336,57 +263,37 @@ app.use(
 
 app.use((req, res) => {
   res.status(404).json({
-    message:
-      "API route not found",
+    message: "API route not found",
   });
 });
-
 
 // =====================================================
 // ERROR HANDLER
 // =====================================================
 
-app.use(
-  (
-    err,
-    req,
-    res,
-    next,
-  ) => {
-    // =========================================
-    // CORS
-    // =========================================
+app.use((err, req, res, next) => {
+  // =========================================
+  // CORS
+  // =========================================
 
-    if (
-      err.message ===
-      "Not allowed by CORS"
-    ) {
-      res.status(403).json({
-        message:
-          "Origin not allowed",
-      });
-
-      return;
-    }
-
-
-    // =========================================
-    // OTHER ERRORS
-    // =========================================
-
-    console.error(
-      "Unhandled Server Error:",
-      err.message,
-    );
-
-
-    res.status(500).json({
-      message:
-        "Internal server error",
+  if (err.message === "Not allowed by CORS") {
+    res.status(403).json({
+      message: "Origin not allowed",
     });
-  },
-);
 
+    return;
+  }
+
+  // =========================================
+  // OTHER ERRORS
+  // =========================================
+
+  console.error("Unhandled Server Error:", err.message);
+
+  res.status(500).json({
+    message: "Internal server error",
+  });
+});
 
 // =====================================================
 // SERVER
@@ -399,22 +306,11 @@ app.use(
 // Render supplies process.env.PORT.
 //
 
-const PORT =
-  process.env.PORT ||
-  5000;
+const PORT = process.env.PORT || 5000;
 
-
-const server =
-  app.listen(
-    PORT,
-    "0.0.0.0",
-    () => {
-      console.log(
-        `NariCraft API running on port ${PORT}`,
-      );
-    },
-  );
-
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`NariCraft API running on port ${PORT}`);
+});
 
 // =====================================================
 // MONGODB
@@ -427,68 +323,34 @@ const server =
 //
 
 mongoose
-  .connect(
-    process.env.MONGO_URI,
-  )
+  .connect(process.env.MONGO_URI)
   .then(() => {
-    console.log(
-      "Connected to MongoDB",
-    );
+    console.log("Connected to MongoDB");
   })
   .catch((err) => {
-    console.error(
-      "MongoDB Connection Error:",
-      err.message,
-    );
+    console.error("MongoDB Connection Error:", err.message);
   });
-
 
 // =====================================================
 // GRACEFUL SHUTDOWN
 // =====================================================
 
-async function shutdown(
-  signal,
-) {
-  console.log(
-    `${signal} received. Shutting down...`,
-  );
+async function shutdown(signal) {
+  console.log(`${signal} received. Shutting down...`);
 
-  server.close(
-    async () => {
-      try {
-        await mongoose
-          .connection
-          .close();
+  server.close(async () => {
+    try {
+      await mongoose.connection.close();
 
-        console.log(
-          "MongoDB connection closed",
-        );
-      } catch (err) {
-        console.error(
-          "MongoDB shutdown error:",
-          err.message,
-        );
-      }
+      console.log("MongoDB connection closed");
+    } catch (err) {
+      console.error("MongoDB shutdown error:", err.message);
+    }
 
-      process.exit(0);
-    },
-  );
+    process.exit(0);
+  });
 }
 
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-process.on(
-  "SIGTERM",
-  () =>
-    shutdown(
-      "SIGTERM",
-    ),
-);
-
-process.on(
-  "SIGINT",
-  () =>
-    shutdown(
-      "SIGINT",
-    ),
-);
+process.on("SIGINT", () => shutdown("SIGINT"));
