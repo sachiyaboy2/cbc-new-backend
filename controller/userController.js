@@ -11,12 +11,9 @@ import { OAuth2Client } from "google-auth-library";
 import dotenv from "dotenv";
 import nodemailer from "nodemailer";
 import OTP from "../models/otpModel.js";
-import dns from "node:dns";
+import dns from "node:dns"; 
 
-dns.setServers([
-  "1.1.1.1",
-  "8.8.8.8",
-]);
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 dotenv.config();
 

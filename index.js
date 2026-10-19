@@ -82,7 +82,7 @@ app.use(
       // No Origin header:
       //
       // Allow server-to-server requests such as
-      // PayHere notify_url callbacks,
+      // signed payment webhooks,
       // Postman, curl, etc.
       // -------------------------------------------------
 
@@ -137,8 +137,8 @@ app.use(
   }),
 );
 
-// PayHere notify_url sends:
-// application/x-www-form-urlencoded
+// Optional form-encoded request support.
+// Normal React requests use JSON.
 app.use(
   express.urlencoded({
     extended: false,
@@ -188,7 +188,7 @@ app.get("/", (req, res) => {
 // continue.
 //
 // This is important because public endpoints
-// such as PayHere notify_url do NOT send our JWT.
+// such as signed payment webhooks do NOT send our JWT.
 // =====================================================
 
 app.use((req, res, next) => {
