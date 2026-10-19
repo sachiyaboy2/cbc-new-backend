@@ -13,22 +13,21 @@ import nodemailer from "nodemailer";
 import OTP from "../models/otpModel.js";
 import dns from "node:dns";
 
-dns.setServers([
-  "1.1.1.1",
-  "8.8.8.8",
-]);
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 dotenv.config();
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
+
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.APP_PASSWORD,
   },
+
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
 });
 // =====================================================
 // GOOGLE CLIENT
@@ -658,15 +657,11 @@ export async function updateProfile(req, res) {
 
 export async function sendOTP(req, res) {
   try {
-    // =========================================
-    // GET EMAIL
-    // =========================================
-
-    const email = req.body.email?.toString().trim().toLowerCase();
+    const email = req.body.email?.trim().toLowerCase();
 
     if (!email) {
       res.status(400).json({
-        message: "Email address is required",
+        message: "Email is required",
       });
 
       return;
@@ -680,43 +675,19 @@ export async function sendOTP(req, res) {
       email: email,
     });
 
-    /*
-      Security:
-      account එක නැති email එකක් දැම්මත්
-      "user not found" කියලා expose කරන්නේ නැහැ.
-    */
-
-    if (user == null) {
-      res.status(200).json({
-        message: "If an account exists with this email, an OTP has been sent.",
+    if (!user) {
+      res.status(404).json({
+        message: "No account found with this email",
       });
 
       return;
     }
 
     // =========================================
-    // BLOCKED USER
+    // CREATE OTP
     // =========================================
 
-    if (user.isBlocked === true) {
-      res.status(403).json({
-        message: "This account has been blocked",
-      });
-
-      return;
-    }
-
-    // =========================================
-    // GENERATE SECURE 6 DIGIT OTP
-    // =========================================
-
-    const otp = crypto.randomInt(100000, 1000000).toString();
-
-    // =========================================
-    // HASH OTP
-    // =========================================
-
-    const hashedOTP = await bcrypt.hash(otp, 10);
+    const otp = Math.floor(Math.random() * 900000) + 100000;
 
     // =========================================
     // DELETE OLD OTP
@@ -727,21 +698,12 @@ export async function sendOTP(req, res) {
     });
 
     // =========================================
-    // OTP EXPIRY - 10 MINUTES
-    // =========================================
-
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    // =========================================
-    // SAVE OTP
+    // SAVE NEW OTP
     // =========================================
 
     const newOTP = new OTP({
       email: email,
-
-      otp: hashedOTP,
-
-      expiresAt: expiresAt,
+      otp: otp,
     });
 
     await newOTP.save();
@@ -757,102 +719,22 @@ export async function sendOTP(req, res) {
 
       subject: "NariCraft Password Reset OTP",
 
-      html: `
-        <div
-          style="
-            font-family: Arial, sans-serif;
-            max-width: 520px;
-            margin: auto;
-            padding: 30px;
-            background: #f6ede2;
-            border-radius: 20px;
-            border: 1px solid #ead8c2;
-          "
-        >
-
-          <h2
-            style="
-              color: #5b1a2b;
-              margin-bottom: 10px;
-            "
-          >
-            NariCraft Password Reset
-          </h2>
-
-          <p
-            style="
-              color: #765f52;
-              line-height: 1.7;
-            "
-          >
-            We received a request to reset your
-            NariCraft account password.
-          </p>
-
-          <p
-            style="
-              color: #765f52;
-            "
-          >
-            Your verification code is:
-          </p>
-
-          <div
-            style="
-              font-size: 32px;
-              font-weight: bold;
-              letter-spacing: 8px;
-              text-align: center;
-              color: #d99b21;
-              background: white;
-              padding: 20px;
-              border-radius: 14px;
-              margin: 20px 0;
-            "
-          >
-            ${otp}
-          </div>
-
-          <p
-            style="
-              color: #765f52;
-              line-height: 1.7;
-            "
-          >
-            This OTP will expire in
-            <strong>10 minutes</strong>.
-          </p>
-
-          <p
-            style="
-              color: #9b8374;
-              font-size: 12px;
-            "
-          >
-            If you did not request a password reset,
-            you can safely ignore this email.
-          </p>
-
-        </div>
-      `,
+      text:
+        `Your NariCraft password reset OTP is ${otp}. ` +
+        `Do not share this code with anyone.`,
     });
-
-    // =========================================
-    // SUCCESS
-    // =========================================
 
     res.status(200).json({
-      message: "OTP sent successfully. Please check your email.",
+      message: "OTP sent to your email successfully",
     });
   } catch (err) {
-    console.error("Send OTP Error:", err);
+  console.error("OTP EMAIL ERROR:", err);
 
-    res.status(500).json({
-      message: "Unable to send OTP. Please try again.",
-
-      error: err.message,
-    });
-  }
+  res.status(500).json({
+    message: "Unable to send OTP email",
+    error: err.message,
+  });
+}
 }
 
 // =====================================================

@@ -49,7 +49,9 @@ userRouter.put("/profile-image", updateProfileImage);
 
 userRouter.put("/profile", updateProfile);
 
-//=======================================================
+// =====================================================
+// FORGOT PASSWORD
+// =====================================================
 
 userRouter.post("/forgot-password/send-otp", sendOTP);
 
