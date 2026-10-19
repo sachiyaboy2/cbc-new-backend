@@ -6,32 +6,102 @@ import mongoose from "mongoose";
 
 const measurementSchema = new mongoose.Schema(
   {
-    bust: {
+    // =================================================
+    // NEW COMMON / GARMENT-SPECIFIC MEASUREMENTS
+    // =================================================
+
+    // උස
+    height: {
       type: Number,
       default: null,
     },
 
-    underBust: {
-      type: Number,
-      default: null,
-    },
-
-    waist: {
-      type: Number,
-      default: null,
-    },
-
+    // උරහිස / උරපතු මිනුම
     shoulder: {
       type: Number,
       default: null,
     },
 
+    // පපුව වට
+    bust: {
+      type: Number,
+      default: null,
+    },
+
+    // උදරයේ ප්‍රදේශ මිම්ම
+    abdomen: {
+      type: Number,
+      default: null,
+    },
+
+    // ඉන
+    waist: {
+      type: Number,
+      default: null,
+    },
+
+    // උරහිස / ඉහළ සිට ඉන දක්වා
+    waistLength: {
+      type: Number,
+      default: null,
+    },
+
+    // ඉදිරි කර ගැඹුර
+    frontNeckDepth: {
+      type: Number,
+      default: null,
+    },
+
+    // පිටුපස කර ගැඹුර
+    backNeckDepth: {
+      type: Number,
+      default: null,
+    },
+
+    // ඉහළ සිට Bra මධ්‍ය ලක්ෂ්‍යය දක්වා
+    topToBustPoint: {
+      type: Number,
+      default: null,
+    },
+
+    // පැත්තෙන් සිට Bra මධ්‍ය ලක්ෂ්‍යය දක්වා
+    sideToBustPoint: {
+      type: Number,
+      default: null,
+    },
+
+    // අත දිග
     sleeveLength: {
       type: Number,
       default: null,
     },
 
+    // අත වට
     sleeveCircumference: {
+      type: Number,
+      default: null,
+    },
+
+    // අත් කැපුම / Armhole
+    armhole: {
+      type: Number,
+      default: null,
+    },
+
+    // සාය උස
+    skirtLength: {
+      type: Number,
+      default: null,
+    },
+
+    // =================================================
+    // LEGACY MEASUREMENTS
+    //
+    // පරණ custom orders break නොවෙන්න
+    // මේ fields තියාගන්නවා.
+    // =================================================
+
+    underBust: {
       type: Number,
       default: null,
     },
@@ -55,6 +125,35 @@ const measurementSchema = new mongoose.Schema(
     _id: false,
   },
 );
+
+// =====================================================
+// EMPTY MEASUREMENTS
+// =====================================================
+
+function createEmptyMeasurements() {
+  return {
+    height: null,
+    shoulder: null,
+    bust: null,
+    abdomen: null,
+    waist: null,
+    waistLength: null,
+    frontNeckDepth: null,
+    backNeckDepth: null,
+    topToBustPoint: null,
+    sideToBustPoint: null,
+    sleeveLength: null,
+    sleeveCircumference: null,
+    armhole: null,
+    skirtLength: null,
+
+    // Legacy
+    underBust: null,
+    frontNeck: null,
+    backNeck: null,
+    jacketLength: null,
+  };
+}
 
 // =====================================================
 // CUSTOM ORDER SCHEMA
@@ -107,6 +206,19 @@ const customOrderSchema = new mongoose.Schema(
     },
 
     // =================================================
+    // GARMENT TYPE
+    //
+    // null allowed only for older existing orders.
+    // Controller එකෙන් new orders වලදී required කරනවා.
+    // =================================================
+
+    garmentType: {
+      type: String,
+      enum: ["saree-jacket", "frock", "crop-top", null],
+      default: null,
+    },
+
+    // =================================================
     // MEASUREMENT TYPE
     // =================================================
 
@@ -142,17 +254,7 @@ const customOrderSchema = new mongoose.Schema(
 
     measurements: {
       type: measurementSchema,
-      default: () => ({
-        bust: null,
-        underBust: null,
-        waist: null,
-        shoulder: null,
-        sleeveLength: null,
-        sleeveCircumference: null,
-        frontNeck: null,
-        backNeck: null,
-        jacketLength: null,
-      }),
+      default: createEmptyMeasurements,
     },
 
     // =================================================
@@ -186,7 +288,6 @@ const customOrderSchema = new mongoose.Schema(
 
     // =================================================
     // DELIVERY DETAILS
-    // Filled when customer starts payment.
     // =================================================
 
     deliveryAddress: {
@@ -252,8 +353,8 @@ const customOrderSchema = new mongoose.Schema(
       default: "Not Applicable",
     },
 
-    // We store only the gateway payment reference/id.
-    // Card number, CVV and card expiry are never stored here.
+    // Gateway payment reference only.
+    // Card number / CVV / expiry NEVER stored.
     payherePaymentId: {
       type: String,
       default: "",

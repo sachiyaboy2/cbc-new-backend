@@ -3,6 +3,8 @@ import express from "express";
 import {
   initiateProductPayment,
   initiateCustomPayment,
+  initiatePaymentsLkProductPayment,
+  initiatePaymentsLkCustomPayment,
   payHereNotify,
   getPaymentStatus,
 } from "../controller/paymentController.js";
@@ -22,6 +24,26 @@ paymentRouter.post("/product/initiate", initiateProductPayment);
 // =====================================================
 
 paymentRouter.post("/custom/initiate", initiateCustomPayment);
+
+// =====================================================
+// PAYMENTS.LK PRODUCT ORDER PAYMENT
+// POST /api/payments/payments-lk/product/initiate
+// =====================================================
+
+paymentRouter.post(
+  "/payments-lk/product/initiate",
+  initiatePaymentsLkProductPayment,
+);
+
+// =====================================================
+// PAYMENTS.LK CUSTOM ORDER PAYMENT
+// POST /api/payments/payments-lk/custom/initiate
+// =====================================================
+
+paymentRouter.post(
+  "/payments-lk/custom/initiate",
+  initiatePaymentsLkCustomPayment,
+);
 
 // =====================================================
 // PAYHERE CALLBACK

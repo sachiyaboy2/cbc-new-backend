@@ -1,10 +1,117 @@
 import CustomOrder from "../models/customOrder.js";
-
 import MeasurementProfile from "../models/measurementProfile.js";
-
 import User from "../models/user.js";
-
 import { isAdmin } from "./userController.js";
+
+// =====================================================
+// GARMENT CONFIG
+// =====================================================
+
+const garmentConfig = {
+  "saree-jacket": {
+    label: "Saree Jacket",
+
+    profileKey: "sareeJacket",
+
+    requiredFields: [
+      "height",
+      "shoulder",
+      "bust",
+      "abdomen",
+      "frontNeckDepth",
+      "backNeckDepth",
+      "topToBustPoint",
+      "sideToBustPoint",
+      "sleeveLength",
+      "sleeveCircumference",
+      "armhole",
+    ],
+  },
+
+  frock: {
+    label: "Frock",
+
+    profileKey: "frock",
+
+    requiredFields: [
+      "shoulder",
+      "waistLength",
+      "bust",
+      "waist",
+      "sleeveCircumference",
+      "armhole",
+      "skirtLength",
+      "frontNeckDepth",
+    ],
+  },
+
+  "crop-top": {
+    label: "Crop Top",
+
+    profileKey: "cropTop",
+
+    requiredFields: [
+      "height",
+      "shoulder",
+      "waistLength",
+      "bust",
+      "waist",
+      "sleeveCircumference",
+      "armhole",
+      "frontNeckDepth",
+    ],
+  },
+};
+
+// =====================================================
+// MEASUREMENT LABELS
+// =====================================================
+
+const measurementLabels = {
+  height: "Height",
+  shoulder: "Shoulder",
+  bust: "Bust",
+  abdomen: "Abdomen",
+  waist: "Waist",
+  waistLength: "Waist Length",
+  frontNeckDepth: "Front Neck Depth",
+  backNeckDepth: "Back Neck Depth",
+  topToBustPoint: "Top to Bust Point",
+  sideToBustPoint: "Side to Bust Point",
+  sleeveLength: "Sleeve Length",
+  sleeveCircumference: "Sleeve Circumference",
+  armhole: "Armhole",
+  skirtLength: "Skirt Length",
+};
+
+// =====================================================
+// EMPTY MEASUREMENTS
+// =====================================================
+
+function createEmptyMeasurements() {
+  return {
+    height: null,
+    shoulder: null,
+    bust: null,
+    abdomen: null,
+    waist: null,
+    waistLength: null,
+    frontNeckDepth: null,
+    backNeckDepth: null,
+    topToBustPoint: null,
+    sideToBustPoint: null,
+    sleeveLength: null,
+    sleeveCircumference: null,
+    armhole: null,
+    skirtLength: null,
+
+    // Legacy fields
+    underBust: null,
+    frontNeck: null,
+    backNeck: null,
+    jacketLength: null,
+  };
+}
 
 // =====================================================
 // CREATE CUSTOM ORDER
@@ -93,6 +200,8 @@ export async function createCustomOrder(req, res) {
 
       designImage,
 
+      garmentType,
+
       measurementType,
 
       standardSize,
@@ -147,6 +256,20 @@ export async function createCustomOrder(req, res) {
     }
 
     // =========================================
+    // GARMENT TYPE
+    // =========================================
+
+    const config = garmentConfig[garmentType];
+
+    if (!config) {
+      res.status(400).json({
+        message: "Please select a valid garment type",
+      });
+
+      return;
+    }
+
+    // =========================================
     // MEASUREMENT TYPE
     // =========================================
 
@@ -178,25 +301,7 @@ export async function createCustomOrder(req, res) {
     // DEFAULT MEASUREMENTS
     // =========================================
 
-    let finalMeasurements = {
-      bust: null,
-
-      underBust: null,
-
-      waist: null,
-
-      shoulder: null,
-
-      sleeveLength: null,
-
-      sleeveCircumference: null,
-
-      frontNeck: null,
-
-      backNeck: null,
-
-      jacketLength: null,
-    };
+    let finalMeasurements = createEmptyMeasurements();
 
     let finalUnit = "in";
 
@@ -205,6 +310,10 @@ export async function createCustomOrder(req, res) {
     // =========================================
 
     if (measurementType === "custom") {
+      // ===============================
+      // UNIT CHECK
+      // ===============================
+
       if (measurementUnit !== "in" && measurementUnit !== "cm") {
         res.status(400).json({
           message: "Please select inches or centimeters",
@@ -213,34 +322,21 @@ export async function createCustomOrder(req, res) {
         return;
       }
 
-      const requiredFields = [
-        "bust",
+      // ===============================
+      // VALIDATE ONLY SELECTED GARMENT
+      // FIELDS
+      // ===============================
 
-        "underBust",
-
-        "waist",
-
-        "shoulder",
-
-        "sleeveLength",
-
-        "sleeveCircumference",
-
-        "frontNeck",
-
-        "backNeck",
-
-        "jacketLength",
-      ];
-
-      for (let i = 0; i < requiredFields.length; i++) {
-        const field = requiredFields[i];
+      for (let i = 0; i < config.requiredFields.length; i++) {
+        const field = config.requiredFields[i];
 
         const value = Number(measurements?.[field]);
 
         if (!Number.isFinite(value) || value <= 0) {
           res.status(400).json({
-            message: `Please enter a valid ${field} measurement`,
+            message: `Please enter a valid ${
+              measurementLabels[field] || field
+            } measurement`,
           });
 
           return;
@@ -291,6 +387,10 @@ export async function createCustomOrder(req, res) {
 
       designImage: designImage.trim(),
 
+      // GARMENT
+
+      garmentType: garmentType,
+
       // SIZE
 
       measurementType: measurementType,
@@ -332,7 +432,6 @@ export async function createCustomOrder(req, res) {
       paymentCompletedAt: null,
 
       // DELIVERY
-      // Filled when customer starts payment.
 
       deliveryAddress: "",
 
@@ -358,21 +457,27 @@ export async function createCustomOrder(req, res) {
     await customOrder.save();
 
     // =========================================
-    // SAVE MEASUREMENTS TO ACCOUNT
+    // SAVE GARMENT-SPECIFIC MEASUREMENTS
     // =========================================
 
     if (measurementType === "custom" && saveMeasurements === true) {
+      const profilePath = `garmentProfiles.${config.profileKey}`;
+
       await MeasurementProfile.findOneAndUpdate(
         {
           email: customerEmail,
         },
 
         {
-          email: customerEmail,
+          $set: {
+            email: customerEmail,
 
-          measurementUnit: finalUnit,
+            [profilePath]: {
+              measurementUnit: finalUnit,
 
-          measurements: finalMeasurements,
+              measurements: finalMeasurements,
+            },
+          },
         },
 
         {
@@ -381,6 +486,8 @@ export async function createCustomOrder(req, res) {
           new: true,
 
           runValidators: true,
+
+          setDefaultsOnInsert: true,
         },
       );
     }
@@ -635,9 +742,6 @@ export async function updateCustomOrderPrice(req, res) {
 
     // =========================================
     // PAYMENT SAFETY
-    //
-    // Price cannot change after successful
-    // payment data exists.
     // =========================================
 
     if (
@@ -779,17 +883,11 @@ export async function updateCustomOrderStatus(req, res) {
 
     const allowedStatuses = [
       "Pending",
-
       "Reviewed",
-
       "Accepted",
-
       "In Progress",
-
       "Ready",
-
       "Completed",
-
       "Cancelled",
     ];
 
@@ -831,9 +929,6 @@ export async function updateCustomOrderStatus(req, res) {
 
     // =========================================
     // COMPLETED SAFETY
-    //
-    // Half payment order cannot be completed
-    // until delivery balance is collected.
     // =========================================
 
     if (
@@ -915,7 +1010,6 @@ export async function updateCustomOrderStatus(req, res) {
 // =====================================================
 // ADMIN UPDATE PAYMENT STATUS
 //
-// NOTE:
 // Successful online payment states are controlled
 // by verified payment callback.
 // =====================================================
@@ -952,9 +1046,6 @@ export async function updateCustomOrderPaymentStatus(req, res) {
 
     // =========================================
     // MANUAL STATUS SAFETY
-    //
-    // Paid / Partially Paid must not be
-    // manually forged from admin UI.
     // =========================================
 
     const allowedManualStatuses = ["Price Pending", "Payment Pending"];
@@ -1078,12 +1169,6 @@ export async function updateCustomOrderPaymentStatus(req, res) {
 
 // =====================================================
 // ADMIN COLLECT HALF PAYMENT BALANCE
-//
-// Customer already paid 50% through PayHere.
-// Admin uses this after remaining 50% is
-// collected on delivery.
-//
-// This does NOT charge customer's card.
 // =====================================================
 
 export async function collectCustomOrderBalance(req, res) {
